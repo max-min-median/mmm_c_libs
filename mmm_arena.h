@@ -76,6 +76,7 @@ arena *new_arena(size_t capacity) {
     return arenas[num_arenas++];
 }
 
+/*
 // for testing purposes
 void *movealloc(void *mem, size_t size) {
     void *new = malloc(size);
@@ -83,10 +84,11 @@ void *movealloc(void *mem, size_t size) {
     free(mem);
     return new;
 }
+*/
 
 void arena_resize(arena *ar, size_t size) {
     void *old_ptr = ar->ptr;
-    ar->ptr = movealloc(ar->ptr, size);  // for testing purposes. To change back to realloc.
+    ar->ptr = realloc(ar->ptr, size);  // change realloc to movealloc to force movement of arena during resize
     if (ar->ptr == NULL) {
         puts("arena_resize(): Unable to resize arena");
         ar->ptr = old_ptr;
