@@ -31,6 +31,7 @@ void a_cleanup(void) {
         if (arenas[i] != NULL) {
             DEBUG_PRINTF("a_cleanup(): Freeing arena '%s'...\n", arenas[i]->name);
             free(arenas[i]->ptr);
+            free(arenas[i]->client_ptrs);
             free(arenas[i]);
             arenas[i] = NULL;
         }
@@ -53,26 +54,26 @@ arena *new_arena(size_t capacity) {
         return NULL;
     }
     // DEBUG_PRINTF("new_arena(): Creating arena #%d (%zu bytes) at %p\n", idx, capacity);
-    arenas[num_arenas] = (arena *) malloc(sizeof(arena));
-    if (arenas[num_arenas] == NULL) {
+    arena *ar = arenas[num_arenas] = (arena *) malloc(sizeof(arena));
+    if (ar == NULL) {
         printf("new_arena(): Failed to allocate %zu bytes for arena metadata!\n", sizeof(arena));
         return NULL;
     }
-    arenas[num_arenas]->ptr = malloc(capacity);
-    if (arenas[num_arenas]->ptr == NULL) {
-        free(arenas[num_arenas]);
+    ar->ptr = malloc(capacity);
+    if (ar->ptr == NULL) {
+        free(ar);
         arenas[num_arenas] = NULL;
         printf("new_arena(): Failed to allocate %zu bytes for arena!\n", capacity);
         return NULL;
     }
-    arenas[num_arenas]->capacity = capacity;
-    arenas[num_arenas]->current = 0;
-    arenas[num_arenas]->client_ptr_array_size = 4;
-    arenas[num_arenas]->client_ptrs = malloc(arenas[num_arenas]->client_ptr_array_size * sizeof(void **));
-    arenas[num_arenas]->client_ptr_idx = 0;
-    arenas[num_arenas]->auto_resize = 1;
-    snprintf(arenas[num_arenas]->name, 16, "ar_%03d", arena_name_idx++);
-    DEBUG_PRINTF("new_arena(): Created arena '%s' (%zu bytes) at %p\n", arenas[num_arenas]->name, capacity, arenas[num_arenas]->ptr);
+    ar->capacity = capacity;
+    ar->current = 0;
+    ar->client_ptr_array_size = 4;
+    ar->client_ptrs = malloc(ar->client_ptr_array_size * sizeof(void **));
+    ar->client_ptr_idx = 0;
+    ar->auto_resize = 1;
+    snprintf(ar->name, 16, "ar_%03d", arena_name_idx++);
+    DEBUG_PRINTF("new_arena(): Created arena '%s' (%zu bytes) at %p\n", ar->name, capacity, ar->ptr);
     return arenas[num_arenas++];
 }
 
@@ -86,6 +87,19 @@ void *movealloc(void *mem, size_t size) {
 }
 */
 
+arena *arena_copy(arena *ar) {
+    arena *copy = new_arena(ar->capacity);
+    if (copy == NULL) {
+        printf("arena_copy(): Failed to create new arena!\n");
+        return NULL;
+    }
+    copy->current = ar->current;
+    copy->auto_resize = ar->auto_resize;
+    memcpy(copy->ptr, ar->ptr, ar->current);
+    DEBUG_PRINTF("copy_arena(): Copied arena '%s' (%zu bytes) -> '%s'\n", ar->name, ar->capacity, copy->name);
+    return copy;
+}
+
 void arena_resize(arena *ar, size_t size) {
     void *old_ptr = ar->ptr;
     ar->ptr = realloc(ar->ptr, size);  // change realloc to movealloc to force movement of arena during resize
@@ -93,10 +107,12 @@ void arena_resize(arena *ar, size_t size) {
         puts("arena_resize(): Unable to resize arena");
         ar->ptr = old_ptr;
     } else {
-        DEBUG_PRINTF("arena_resize(): Arena has expanded from %zu -> %zu\n", ar->capacity, size);
+        // DEBUG_PRINTF("arena_resize(): Arena has expanded from %zu -> %zu\n", ar->capacity, size);
+        printf("arena_resize(): Arena has expanded from %zu -> %zu\n", ar->capacity, size);
         ar->capacity = size;
         if (ar->ptr != old_ptr) {
-            DEBUG_PRINTF("arena_resize(): Arena has shifted: %p -> %p\n", old_ptr, ar->ptr);
+            printf("arena_resize(): Arena has shifted: %p -> %p\n", old_ptr, ar->ptr);
+            // DEBUG_PRINTF("arena_resize(): Arena has shifted: %p -> %p\n", old_ptr, ar->ptr);
             for (int i = 0; i < ar->client_ptr_idx; i++) {
                 DEBUG_PRINTF("arena_resize(): Moving previous client pointer: %p ", *ar->client_ptrs[i]);
                 (*ar->client_ptrs[i]) += ar->ptr - old_ptr;
@@ -136,9 +152,10 @@ void arena_free(arena *ar) {
     }
     DEBUG_PRINTF("arena_free(): Freeing arena '%s'...\n", ar->name);
     free(ar->ptr);
-    free(arenas[idx]);
-    arenas[idx] = arenas[num_arenas];
-    arenas[num_arenas--] = NULL;
+    free(ar->client_ptrs);
+    free(ar);
+    arenas[idx] = arenas[--num_arenas];
+    arenas[num_arenas] = NULL;
 }
 
 void arena_reset(arena *ar) {
